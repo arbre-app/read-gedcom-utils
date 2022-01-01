@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "es5",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "sourceMap": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "downlevelIteration": true,
+    "declaration": true,
+    "outDir": "dist/cjs",
+    "lib": [
+      "esnext"
+    ]
+  },
+  "include": ["src/**/*.ts"]
+}
