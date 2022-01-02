@@ -47,7 +47,7 @@
     "typedoc": "^0.22.10",
     "typescript": "^4.5.4"
   },
-  "dependencies": {
+  "peerDependencies": {
     "read-gedcom": "^0.3.1"
   }
 }
