@@ -1,7 +1,7 @@
 import { describe, it } from 'mocha';
 import { expect } from 'chai';
 import { readGedcom, ValueSex } from 'read-gedcom';
-import { estimateIndividualsDates } from '../src';
+import { estimateIndividualsDates, FiliationParameters } from '../src';
 
 describe('Individual dates estimations', () => {
   type Id = number;
@@ -11,15 +11,22 @@ describe('Individual dates estimations', () => {
 
   const Male = ValueSex.Male, Female = ValueSex.Female;
 
-  const filiationParameters = {
-    maxAge: 123,
-    minFatherAge: 12,
-    maxFatherAge: 100,
-    minMotherAge: 5,
-    maxMotherAge: 75,
+  const filiationParameters: FiliationParameters = {
+    maxAge: {
+      male: 117,
+      female: 123,
+    },
+    minParentAge: {
+      male: 12,
+      female: 5,
+    },
+    maxParentAge: {
+      male: 100,
+      female: 75,
+    },
     maxPregnancyDuration: 2,
     datePlusMinus: 5,
-    maxYear: 2000 as number | null,
+    maxYear: 2000,
   };
 
   const checkFor = (

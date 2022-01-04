@@ -12,13 +12,17 @@ import {
   ValueSex,
 } from 'read-gedcom';
 
+export interface PreciseGenderedParameter {
+  male?: number;
+  female?: number;
+}
+
+export type GenderedParameter = number | PreciseGenderedParameter;
+
 export interface FiliationParameters {
-  maxAgeMale?: number,
-  maxAgeFemale?: number,
-  minFatherAge?: number,
-  maxFatherAge?: number,
-  minMotherAge?: number,
-  maxMotherAge?: number,
+  maxAge?: GenderedParameter,
+  minParentAge?: GenderedParameter,
+  maxParentAge?: GenderedParameter,
   maxPregnancyDuration?: number,
   datePlusMinus?: number,
   maxYear?: number | null,
@@ -26,12 +30,18 @@ export interface FiliationParameters {
 
 // These values are derived from real data (yes)
 export const defaultFiliationParameters = {
-  maxAgeMale: 117,
-  maxAgeFemale: 123,
-  minFatherAge: 12,
-  maxFatherAge: 100,
-  minMotherAge: 5,
-  maxMotherAge: 75,
+  maxAge: {
+    male: 117,
+    female: 123,
+  },
+  minParentAge: {
+    male: 12,
+    female: 5,
+  },
+  maxParentAge: {
+    male: 100,
+    female: 75,
+  },
   maxPregnancyDuration: 2,
   datePlusMinus: 5,
   maxYear: null as number | null,
@@ -49,9 +59,21 @@ export interface EstimatedDates {
   [id: string]: EstimatedDate;
 }
 
-export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: FiliationParameters): EstimatedDates => {
-  const actualParameters: typeof defaultFiliationParameters = { ...defaultFiliationParameters, ...parameters };
-  const maxYear = actualParameters.maxYear ?? new Date().getFullYear();
+interface InternalGenderedParameter extends PreciseGenderedParameter {
+  male: number;
+  female: number
+}
+
+export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters?: FiliationParameters): EstimatedDates => {
+  const parseGenderedParameter = (parameter: GenderedParameter | undefined, defaultValue: InternalGenderedParameter): InternalGenderedParameter =>
+    (Number.isInteger(parameter) ? { male: parameter as number, female: parameter as number } : parameter ? { ...defaultValue, ...(parameter as PreciseGenderedParameter) } : defaultValue);
+  const maxAge = parseGenderedParameter(parameters?.maxAge, defaultFiliationParameters.maxAge);
+  const minParentAge = parseGenderedParameter(parameters?.minParentAge, defaultFiliationParameters.minParentAge);
+  const maxParentAge = parseGenderedParameter(parameters?.maxParentAge, defaultFiliationParameters.maxParentAge);
+  const maxPregnancyDuration = parameters?.maxPregnancyDuration ?? defaultFiliationParameters.maxPregnancyDuration;
+  const datePlusMinus = parameters?.datePlusMinus ?? defaultFiliationParameters.datePlusMinus;
+  const maxYear = parameters?.maxYear ?? defaultFiliationParameters.maxYear ?? new Date().getFullYear();
+
   const maxDate = new Date(Date.UTC(maxYear, 12 - 1, 31));
 
   const individualIds = gedcom.getIndividualRecord().array().map(node => node.pointer as string);
@@ -117,8 +139,8 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
         const dt = toJsDate(date.date); // Possibly null
         if (date.isDateApproximated) {
           if (dt !== null) {
-            after = withAddedYears(dt, -actualParameters.datePlusMinus);
-            before = withAddedYears(toJsDateUpperBound(date.date, new Date(dt.getTime())), actualParameters.datePlusMinus);
+            after = withAddedYears(dt, -datePlusMinus);
+            before = withAddedYears(toJsDateUpperBound(date.date, new Date(dt.getTime())), datePlusMinus);
           }
         } else { // Interpreted (text) or normal
           if (dt !== null) {
@@ -185,7 +207,7 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
       {
         x: { id, event: EVENT_DEATH, bound },
         y: { id, event: EVENT_BIRTH, bound },
-        c: gender === ValueSex.Male ? actualParameters.maxAgeMale : gender === ValueSex.Female ? actualParameters.maxAgeFemale : Math.max(actualParameters.maxAgeMale, actualParameters.maxAgeFemale),
+        c: gender === ValueSex.Male ? maxAge.male : gender === ValueSex.Female ? maxAge.female : Math.max(maxAge.male, maxAge.female),
       }
     ));
     // Child/parents relations
@@ -199,11 +221,11 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
       };
       return ([BOUND_BEFORE, BOUND_AFTER] as BoundKey[]).flatMap(bound => [
         // An individual cannot be a father until a certain age
-        { x: { id: parentId, event: EVENT_BIRTH, bound }, y: { id, event: EVENT_BIRTH, bound }, c: valueFor(-actualParameters.minFatherAge, -actualParameters.minMotherAge) },
+        { x: { id: parentId, event: EVENT_BIRTH, bound }, y: { id, event: EVENT_BIRTH, bound }, c: valueFor(-minParentAge.male, -minParentAge.female) },
         // An individual cannot be a father of new children after a certain age
-        { x: { id, event: EVENT_BIRTH, bound }, y: { id: parentId, event: EVENT_BIRTH, bound }, c: valueFor(actualParameters.maxFatherAge, actualParameters.maxMotherAge) },
+        { x: { id, event: EVENT_BIRTH, bound }, y: { id: parentId, event: EVENT_BIRTH, bound }, c: valueFor(maxParentAge.male, maxParentAge.female) },
         // A man can die before they become a father of a child, a woman can't
-        { x: { id, event: EVENT_BIRTH, bound }, y: { id: parentId, event: EVENT_DEATH, bound }, c: valueFor(actualParameters.maxPregnancyDuration, 0) }, // These arguments are in the correct order
+        { x: { id, event: EVENT_BIRTH, bound }, y: { id: parentId, event: EVENT_DEATH, bound }, c: valueFor(maxPregnancyDuration, 0) }, // These arguments are in the correct order
       ]);
     });
 
