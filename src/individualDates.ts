@@ -13,7 +13,8 @@ import {
 } from 'read-gedcom';
 
 export interface FiliationParameters {
-  maxAge?: number,
+  maxAgeMale?: number,
+  maxAgeFemale?: number,
   minFatherAge?: number,
   maxFatherAge?: number,
   minMotherAge?: number,
@@ -25,7 +26,8 @@ export interface FiliationParameters {
 
 // These values are derived from real data (yes)
 export const defaultFiliationParameters = {
-  maxAge: 123,
+  maxAgeMale: 117,
+  maxAgeFemale: 123,
   minFatherAge: 12,
   maxFatherAge: 100,
   minMotherAge: 5,
@@ -35,11 +37,12 @@ export const defaultFiliationParameters = {
   maxYear: null as number | null,
 };
 
-export type DateInterval = [Date | null, Date | null, boolean];
+export type DateInterval = [Date | null, Date | null];
 
 export interface EstimatedDate {
   birth: DateInterval;
   death: DateInterval;
+  inconsistent: boolean;
 }
 
 export interface EstimatedDates {
@@ -51,7 +54,7 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
   const maxYear = actualParameters.maxYear ?? new Date().getFullYear();
   const maxDate = new Date(Date.UTC(maxYear, 12 - 1, 31));
 
-  const topological = gedcom.getIndividualRecord().array().map(node => node.pointer as string);
+  const individualIds = gedcom.getIndividualRecord().array().map(node => node.pointer as string);
 
   const withAddedYears = (date: Date, years: number): Date => {
     const newDate = new Date(date.getTime());
@@ -80,7 +83,7 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
     }
   };
 
-  const intervals = Object.fromEntries(topological.map(id => {
+  const intervals = Object.fromEntries(individualIds.map(id => {
     const individual = gedcom.getIndividualRecord(id);
     const getDatesForTags = (tags: Tag[]) => individual.get(tags).as(SelectionIndividualEvent).getDate().valueAsDate().filter(d => d !== null)[0];
     const birthDate = getDatesForTags([Tag.Birth, Tag.Baptism]), deathDate = getDatesForTags([Tag.Death, Tag.Cremation, Tag.Burial]);
@@ -160,9 +163,11 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
   // Representing the mathematical inequality: x - y <= c
   // With x, y identifiers of the form: { id, event, bound }
   // And c a constant number (equal to 0 most of the time)
-  const constraints: Constraint[] = topological.flatMap(id => {
+  const constraints: Constraint[] = individualIds.flatMap(id => {
+    const individual = gedcom.getIndividualRecord(id);
+    const gender = individual.getSex().value()[0];
     // [{ id, gender }]
-    const parents = gedcom.getIndividualRecord(id).getFamilyAsChild().get([Tag.Husband, Tag.Wife]).as(SelectionIndividualReference).getIndividualRecord().arraySelect().map(record => ({
+    const parents = individual.getFamilyAsChild().get([Tag.Husband, Tag.Wife]).as(SelectionIndividualReference).getIndividualRecord().arraySelect().map(record => ({
       parentId: record.pointer()[0],
       gender: record.getSex().value()[0],
     }));
@@ -177,7 +182,11 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
     ));
     // An individual cannot live older than a certain age
     const maximumAgeConstraints: Constraint[] = ([BOUND_BEFORE, BOUND_AFTER] as BoundKey[]).map(bound => (
-      { x: { id, event: EVENT_DEATH, bound }, y: { id, event: EVENT_BIRTH, bound }, c: actualParameters.maxAge }
+      {
+        x: { id, event: EVENT_DEATH, bound },
+        y: { id, event: EVENT_BIRTH, bound },
+        c: gender === ValueSex.Male ? actualParameters.maxAgeMale : gender === ValueSex.Female ? actualParameters.maxAgeFemale : Math.max(actualParameters.maxAgeMale, actualParameters.maxAgeFemale),
+      }
     ));
     // Child/parents relations
     const childParentsConstraints: Constraint[] = parents.flatMap(({ parentId, gender }) => {
@@ -192,7 +201,7 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
         // An individual cannot be a father until a certain age
         { x: { id: parentId, event: EVENT_BIRTH, bound }, y: { id, event: EVENT_BIRTH, bound }, c: valueFor(-actualParameters.minFatherAge, -actualParameters.minMotherAge) },
         // An individual cannot be a father of new children after a certain age
-        { x: { id, event: EVENT_BIRTH, bound }, y: { id: parentId, event: EVENT_DEATH, bound }, c: valueFor(actualParameters.maxFatherAge, actualParameters.maxMotherAge) },
+        { x: { id, event: EVENT_BIRTH, bound }, y: { id: parentId, event: EVENT_BIRTH, bound }, c: valueFor(actualParameters.maxFatherAge, actualParameters.maxMotherAge) },
         // A man can die before they become a father of a child, a woman can't
         { x: { id, event: EVENT_BIRTH, bound }, y: { id: parentId, event: EVENT_DEATH, bound }, c: valueFor(actualParameters.maxPregnancyDuration, 0) }, // These arguments are in the correct order
       ]);
@@ -220,7 +229,7 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
   // The constraints of the form `x <= c` are handled separately
   // The loop should eventually halt (but this has not yet been proven, so we use a safeguard instead)
 
-  const metaData = Object.fromEntries(topological.map(id => {
+  const metaData = Object.fromEntries(individualIds.map(id => {
     const generateEvent = ([after, before]: [Date | null, Date | null]) => {
       const generateMetadata = (value: Date | null) => ({ assignment: value, index: [] as Constraint[], marked: true, inconsistent: false });
       return { after: generateMetadata(after), before: generateMetadata(before) };
@@ -235,7 +244,7 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
     return bound === BOUND_AFTER ? withEvent.after : withEvent.before;
   };
 
-  const queue: VariableKey[] = topological.flatMap(id =>
+  const queue: VariableKey[] = individualIds.flatMap(id =>
     ([EVENT_BIRTH, EVENT_DEATH] as EventKey[]).flatMap(event =>
       ([BOUND_AFTER, BOUND_BEFORE] as BoundKey[]).map(bound =>
         ({ id, event, bound }))));
@@ -321,11 +330,6 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
             metaY.assignment = withAddedYears(metaX.assignment, -c);
             updated = y;
           }
-        } else if (x.bound === BOUND_BEFORE && y.bound === BOUND_AFTER) {
-          if (isInequalityViolated) { // x := y + c
-            metaX.assignment = withAddedYears(metaY.assignment as Date, c); // (`isInequalityViolated` implies that both assignments are non-null)
-            updated = x;
-          }
         } else if (x.bound === BOUND_BEFORE && y.bound === BOUND_BEFORE) {
           if (metaY.assignment !== null) {
             if (metaX.assignment === null || isInequalityViolated) { // x := y + c
@@ -333,6 +337,12 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
               updated = x;
             }
           }
+        } else if (x.bound === BOUND_BEFORE && y.bound === BOUND_AFTER) { // Ambiguous case
+          throw new Error('This type of constraint is not allowed');
+          /*if (isInequalityViolated) { // x := y + c
+            metaX.assignment = withAddedYears(metaY.assignment as Date, c); // (`isInequalityViolated` implies that both assignments are non-null)
+            updated = x;
+          }*/
         }
 
         if (updated !== null) {
@@ -356,12 +366,14 @@ export const estimateIndividualsDates = (gedcom: SelectionGedcom, parameters: Fi
     console.log(inconsistent ? 'Inconsistent' : 'Did not converge'); // TODO remove
   }
 
-  const result: EstimatedDates = Object.fromEntries(topological.map(id => {
-    const getEvent = (event: EventKey): DateInterval => {
+  const result: EstimatedDates = Object.fromEntries(individualIds.map(id => {
+    const getEvent = (event: EventKey): [DateInterval, boolean] => {
       const metaAfter = getMetaData({ id, event, bound: BOUND_AFTER }), metaBefore = getMetaData({ id, event, bound: BOUND_BEFORE });
-      return [metaAfter.assignment, metaBefore.assignment, metaAfter.inconsistent || metaBefore.inconsistent];
+      return [[metaAfter.assignment, metaBefore.assignment], metaAfter.inconsistent || metaBefore.inconsistent];
     };
-    return [id, { birth: getEvent(EVENT_BIRTH), death: getEvent(EVENT_DEATH) }];
+    const [birth, birthInconsistent] = getEvent(EVENT_BIRTH);
+    const [death, deathInconsistent] = getEvent(EVENT_DEATH);
+    return [id, { birth, death, inconsistent: birthInconsistent || deathInconsistent }];
   }));
 
   console.log(result); // TODO remove
