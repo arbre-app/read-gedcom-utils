@@ -117,4 +117,67 @@ describe('Individual dates estimations', () => {
       },
     );
   });
+
+  it('inconsistent self edge cycle', () => {
+    checkFor(
+      { 0: { gender: Male, birth: '1 JAN 1990' }, 1: { } },
+      [
+        { husband: 0, wife: 1, children: [0] },
+      ],
+      {
+        0: { birth: ['1990-01-01', '1990-01-01'], inconsistent: true },
+        1: { inconsistent: true },
+      },
+    );
+  });
+
+  it('inconsistent simple cycle', () => {
+    checkFor(
+      { 0: { gender: Male, birth: '1 JAN 1990' }, 1: { }, 2: { gender: Male }, 3: { } },
+      [
+        { husband: 0, wife: 1, children: [2] },
+        { husband: 2, wife: 3, children: [0] },
+      ],
+      {
+        0: { birth: ['1990-01-01', '1990-01-01'], inconsistent: true },
+        1: { inconsistent: true },
+        2: { inconsistent: true },
+        3: { inconsistent: true },
+      },
+    );
+  });
+
+  /*it('inconsistent simple cycle 2', () => {
+    checkFor(
+      { 0: { gender: Male, death: 'BEF 1 JAN 1990' }, 1: { }, 2: { gender: Male }, 3: { } },
+      [
+        { husband: 0, wife: 1, children: [2] },
+        { husband: 2, wife: 3, children: [0] },
+      ],
+      {
+        0: { birth: ['1990-01-01', '1990-01-01'], inconsistent: true },
+        1: { inconsistent: true },
+        2: { inconsistent: true },
+        3: { inconsistent: true },
+      },
+    );
+  });*/
+
+  it('high consanguinity', () => {
+    checkFor(
+      { 0: { gender: Male, birth: '1 JAN 1800' }, 1: { gender: Female }, 2: { gender: Male }, 3: { gender: Male }, 4: { gender: Male } },
+      [
+        { husband: 0, wife: 1, children: [2] },
+        { husband: 2, wife: 1, children: [3] },
+        { husband: 3, wife: 1, children: [4] },
+      ],
+      {
+        0: { birth: ['1800-01-01', '1800-01-01'], death: ['1810-01-01', '1917-01-01'] },
+        1: { birth: ['1761-01-01', '1895-01-01'], death: ['1836-01-01', '2018-01-01'] },
+        2: { birth: ['1812-01-01', '1900-01-01'], death: ['1822-01-01', '2017-01-01'] },
+        3: { birth: ['1824-01-01', '1958-01-01'], death: ['1834-01-01', '2075-01-01'] },
+        4: { birth: ['1836-01-01', '1970-01-01'], death: ['1836-01-01', '2087-01-01'] },
+      },
+    );
+  });
 });

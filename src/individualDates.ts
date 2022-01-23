@@ -44,7 +44,7 @@ export const defaultFiliationParameters = {
   },
   maxPregnancyDuration: 2,
   datePlusMinus: 5,
-  maxYear: null as number | null,
+  maxYear: null,
 };
 
 export type DateInterval = [Date | null, Date | null];
